@@ -620,87 +620,68 @@ async def remove_server(interaction: discord.Interaction, container_name: str):
     except subprocess.CalledProcessError as e:
         await interaction.response.send_message(embed=discord.Embed(description=f"Error removing instance: {e}", color=0xff0000))
 
-
-# --- add near your imports ---
-from typing import Callable, Awaitable
-
-# --- FIX small bugs in your helpers ---
-# start_server: replace `user` with `userid`
-async def start_server(interaction: discord.Interaction, container_name: str):
-    userid = str(interaction.user.id)
-    container_id = get_container_id_from_database(userid, container_name)  # fixed
-
-    if not container_id:
-        await interaction.response.send_message(embed=discord.Embed(
-            description="### No instance found for your user.", color=0xff0000))
-        return
-
-    try:
-        subprocess.run(["docker", "start", container_id], check=True)
-        exec_cmd = await asyncio.create_subprocess_exec(
-            "docker", "exec", container_id, "tmate", "-F",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        ssh_session_line = await capture_ssh_session_line(exec_cmd)
-        if ssh_session_line:
-            await interaction.user.send(embed=discord.Embed(
-                description=f"### Instance Started\nSSH Session Command: ```{ssh_session_line}```",
-                color=0x00ff00))
-            await interaction.response.send_message(embed=discord.Embed(
-                description="### Instance started successfully. Check your DMs for details.",
-                color=0x00ff00))
-        else:
-            await interaction.response.send_message(embed=discord.Embed(
-                description="### Instance started, but failed to get SSH session line.",
-                color=0xff0000))
-    except subprocess.CalledProcessError as e:
-        await interaction.response.send_message(embed=discord.Embed(
-            description=f"Error starting instance: {e}", color=0xff0000))
-
-# stop_server: replace `user` with `userid`
-async def stop_server(interaction: discord.Interaction, container_name: str):
-    userid = str(interaction.user.id)
-    container_id = get_container_id_from_database(userid, container_name)  # fixed
-
-    if not container_id:
-        await interaction.response.send_message(embed=discord.Embed(
-            description="### No instance found for your user.", color=0xff0000))
-        return
-
-    try:
-        subprocess.run(["docker", "stop", container_id], check=True)
-        await interaction.response.send_message(embed=discord.Embed(
-            description="### Instance stopped successfully.", color=0x00ff00))
-    except subprocess.CalledProcessError as e:
-        await interaction.response.send_message(embed=discord.Embed(
-            description=f"### Error stopping instance: {e}", color=0xff0000))
-
 class HelpView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # Deploy
-    @discord.ui.button(label="🚀 Deploy", style=discord.ButtonStyle.success, custom_id="help:deploy")
-    async def deploy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await create_server_task(interaction)
+        # --- Row 1: Deploy ---
+        self.add_item(discord.ui.Button(label="🚀 Deploy", style=discord.ButtonStyle.success, custom_id="deploy"))
 
-    # List servers
-    @discord.ui.button(label="📋 List", style=discord.ButtonStyle.primary, custom_id="help:list")
-    async def list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await list_servers(interaction)
+        # --- Row 2: List / Node / Ping ---
+        self.add_item(discord.ui.Button(label="📋 List", style=discord.ButtonStyle.primary, custom_id="list"))
+        self.add_item(discord.ui.Button(label="🖥️ Node", style=discord.ButtonStyle.secondary, custom_id="node"))
+        self.add_item(discord.ui.Button(label="🏓 Ping", style=discord.ButtonStyle.secondary, custom_id="ping"))
 
-    # Node status
-    @discord.ui.button(label="🖥️ Node", style=discord.ButtonStyle.secondary, custom_id="help:node")
-    async def node_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await node_status(interaction)
+        # --- Row 3: Start / Stop / Restart / Regen / Remove ---
+        self.add_item(discord.ui.Button(label="▶️ Start", style=discord.ButtonStyle.success, custom_id="start"))
+        self.add_item(discord.ui.Button(label="⏹️ Stop", style=discord.ButtonStyle.danger, custom_id="stop"))
+        self.add_item(discord.ui.Button(label="🔄 Restart", style=discord.ButtonStyle.primary, custom_id="restart"))
+        self.add_item(discord.ui.Button(label="🔑 Regen SSH", style=discord.ButtonStyle.secondary, custom_id="regen"))
+        self.add_item(discord.ui.Button(label="🗑️ Remove", style=discord.ButtonStyle.danger, custom_id="remove"))
 
-    # Ping
-    @discord.ui.button(label="🏓 Ping", style=discord.ButtonStyle.secondary, custom_id="help:ping")
-    async def ping_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await ping(interaction)
+        # --- Row 4: Ports ---
+        self.add_item(discord.ui.Button(label="🔌 Port Add", style=discord.ButtonStyle.secondary, custom_id="portadd"))
+        self.add_item(discord.ui.Button(label="🌐 HTTP Forward", style=discord.ButtonStyle.secondary, custom_id="http"))
 
-    # Add the rest like Start, Stop, Restart, Regen SSH, Remove, Ports, Balance, Earn
-    # each mapped to their function / modal as I showed earlier.
+        # --- Row 5: Credits ---
+        self.add_item(discord.ui.Button(label="💰 Balance", style=discord.ButtonStyle.secondary, custom_id="bal"))
+        self.add_item(discord.ui.Button(label="🎯 Earn Credit", style=discord.ButtonStyle.secondary, custom_id="earn"))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        cid = interaction.data["custom_id"]
+
+        if cid == "deploy":
+            await create_server_task(interaction)
+        elif cid == "list":
+            await list_servers(interaction)
+        elif cid == "node":
+            await node_status(interaction)
+        elif cid == "ping":
+            await ping(interaction)
+        elif cid == "start":
+            await interaction.response.send_modal(ContainerActionModal("Start Instance", start_server))
+        elif cid == "stop":
+            await interaction.response.send_modal(ContainerActionModal("Stop Instance", stop_server))
+        elif cid == "restart":
+            await interaction.response.send_modal(ContainerActionModal("Restart Instance", restart_server))
+        elif cid == "regen":
+            await interaction.response.send_modal(ContainerActionModal("Regenerate SSH", regen_ssh_command))
+        elif cid == "remove":
+            await interaction.response.send_modal(ContainerActionModal("Remove Instance", remove_server))
+        elif cid == "portadd":
+            async def _action(i: discord.Interaction, name: str, port: int):
+                await port_add(i, name, port)
+            await interaction.response.send_modal(PortActionModal("Add Port Forward", _action))
+        elif cid == "http":
+            async def _action(i: discord.Interaction, name: str, port: int):
+                await port_forward_website(i, name, port)
+            await interaction.response.send_modal(PortActionModal("HTTP Forward", _action))
+        elif cid == "bal":
+            await bal(interaction)
+        elif cid == "earn":
+            await earncredit(interaction)
+
+        return True
 
 
 @bot.tree.command(name="help", description="Shows the help panel")
