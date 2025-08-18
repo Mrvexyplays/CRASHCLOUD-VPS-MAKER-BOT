@@ -621,23 +621,205 @@ async def remove_server(interaction: discord.Interaction, container_name: str):
         await interaction.response.send_message(embed=discord.Embed(description=f"Error removing instance: {e}", color=0xff0000))
 
 
-@bot.tree.command(name="help", description="Shows the help message")
-async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(title="help", color=0x00ff00)
-    embed.add_field(name="/deploy", value="Creates a new Instance with Ubuntu 22.04.", inline=False)
-    embed.add_field(name="/remove <ssh_command/Name>", value="Removes a server", inline=False)
-    embed.add_field(name="/start <ssh_command/Name>", value="Start a server.", inline=False)
-    embed.add_field(name="/stop <ssh_command/Name>", value="Stop a server.", inline=False)
-    embed.add_field(name="/regen-ssh <ssh_command/Name>", value="Regenerates SSH cred", inline=False)
-    embed.add_field(name="/restart <ssh_command/Name>", value="Stop a server.", inline=False)
-    embed.add_field(name="/list", value="List all your servers", inline=False)
-    embed.add_field(name="/ping", value="Check the bot's latency.", inline=False)
-    embed.add_field(name="/node", value="Check The Node Storage Usage.", inline=False)
-    embed.add_field(name="/bal", value="Check Your Balance.", inline=False)
-    embed.add_field(name="/renew", value="Renew The VPS.", inline=False)
-    embed.add_field(name="/earncredit", value="earn the credit.", inline=False)
-    await interaction.response.send_message(embed=embed)
+# --- add near your imports ---
+from typing import Callable, Awaitable
 
+# --- FIX small bugs in your helpers ---
+# start_server: replace `user` with `userid`
+async def start_server(interaction: discord.Interaction, container_name: str):
+    userid = str(interaction.user.id)
+    container_id = get_container_id_from_database(userid, container_name)  # fixed
+
+    if not container_id:
+        await interaction.response.send_message(embed=discord.Embed(
+            description="### No instance found for your user.", color=0xff0000))
+        return
+
+    try:
+        subprocess.run(["docker", "start", container_id], check=True)
+        exec_cmd = await asyncio.create_subprocess_exec(
+            "docker", "exec", container_id, "tmate", "-F",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        ssh_session_line = await capture_ssh_session_line(exec_cmd)
+        if ssh_session_line:
+            await interaction.user.send(embed=discord.Embed(
+                description=f"### Instance Started\nSSH Session Command: ```{ssh_session_line}```",
+                color=0x00ff00))
+            await interaction.response.send_message(embed=discord.Embed(
+                description="### Instance started successfully. Check your DMs for details.",
+                color=0x00ff00))
+        else:
+            await interaction.response.send_message(embed=discord.Embed(
+                description="### Instance started, but failed to get SSH session line.",
+                color=0xff0000))
+    except subprocess.CalledProcessError as e:
+        await interaction.response.send_message(embed=discord.Embed(
+            description=f"Error starting instance: {e}", color=0xff0000))
+
+# stop_server: replace `user` with `userid`
+async def stop_server(interaction: discord.Interaction, container_name: str):
+    userid = str(interaction.user.id)
+    container_id = get_container_id_from_database(userid, container_name)  # fixed
+
+    if not container_id:
+        await interaction.response.send_message(embed=discord.Embed(
+            description="### No instance found for your user.", color=0xff0000))
+        return
+
+    try:
+        subprocess.run(["docker", "stop", container_id], check=True)
+        await interaction.response.send_message(embed=discord.Embed(
+            description="### Instance stopped successfully.", color=0x00ff00))
+    except subprocess.CalledProcessError as e:
+        await interaction.response.send_message(embed=discord.Embed(
+            description=f"### Error stopping instance: {e}", color=0xff0000))
+
+
+# --- UI pieces for /help ---
+
+class ContainerActionModal(discord.ui.Modal):
+    """Generic modal to ask for container name, then run the given action."""
+    def __init__(self, title: str,
+                 action: Callable[[discord.Interaction, str], Awaitable[None]]):
+        super().__init__(title=title, timeout=300)
+        self.action = action
+        self.container_name = discord.ui.TextInput(
+            label="Container name or SSH command",
+            placeholder="Paste the container name or ssh-command here",
+            required=True, max_length=200
+        )
+        self.add_item(self.container_name)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.action(interaction, self.container_name.value)
+
+
+class PortActionModal(discord.ui.Modal):
+    """Modal that asks for container name and port, then runs the given action."""
+    def __init__(self, title: str,
+                 action: Callable[[discord.Interaction, str, int], Awaitable[None]]):
+        super().__init__(title=title, timeout=300)
+        self.action = action
+        self.container_name = discord.ui.TextInput(
+            label="Container name",
+            placeholder="e.g. awesome_container",
+            required=True
+        )
+        self.port = discord.ui.TextInput(
+            label="Port inside the container",
+            placeholder="e.g. 3000",
+            required=True
+        )
+        self.add_item(self.container_name)
+        self.add_item(self.port)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            p = int(self.port.value)
+        except ValueError:
+            await interaction.response.send_message(
+                "Port must be a number.", ephemeral=True)
+            return
+        await self.action(interaction, self.container_name.value, p)
+
+
+class HelpView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    # Row 1 - quick actions
+    @discord.ui.button(label="Deploy", style=discord.ButtonStyle.success, emoji="🚀")
+    async def deploy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # same logic as /deploy
+        await create_server_task(interaction)
+
+    @discord.ui.button(label="List", style=discord.ButtonStyle.primary, emoji="📋")
+    async def list_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await list_servers(interaction)
+
+    @discord.ui.button(label="Node", style=discord.ButtonStyle.secondary, emoji="🖥️")
+    async def node_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await node_status(interaction)
+
+    @discord.ui.button(label="Ping", style=discord.ButtonStyle.secondary, emoji="🏓")
+    async def ping_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await ping(interaction)
+
+    # Row 2 - needs container name
+    @discord.ui.button(label="Start", style=discord.ButtonStyle.success, emoji="▶️")
+    async def start_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ContainerActionModal("Start Instance", start_server))
+
+    @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️")
+    async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ContainerActionModal("Stop Instance", stop_server))
+
+    @discord.ui.button(label="Restart", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def restart_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ContainerActionModal("Restart Instance", restart_server))
+
+    @discord.ui.button(label="Regen SSH", style=discord.ButtonStyle.primary, emoji="🔑")
+    async def regen_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ContainerActionModal("Regenerate SSH", regen_ssh_command))
+
+    @discord.ui.button(label="Remove", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def remove_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ContainerActionModal("Remove Instance", remove_server))
+
+    # Row 3 - port helpers
+    @discord.ui.button(label="Port Add", style=discord.ButtonStyle.secondary, emoji="🔌")
+    async def port_add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def _action(i: discord.Interaction, name: str, port: int):
+            await port_add(i, name, port)
+        await interaction.response.send_modal(PortActionModal("Add Port Forward", _action))
+
+    @discord.ui.button(label="HTTP Forward", style=discord.ButtonStyle.secondary, emoji="🌐")
+    async def http_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def _action(i: discord.Interaction, name: str, port: int):
+            await port_forward_website(i, name, port)
+        await interaction.response.send_modal(PortActionModal("Forward HTTP", _action))
+
+    # Row 4 - credits
+    @discord.ui.button(label="Balance", style=discord.ButtonStyle.secondary, emoji="💰")
+    async def bal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await bal(interaction)
+
+    @discord.ui.button(label="Earn Credit", style=discord.ButtonStyle.secondary, emoji="🎯")
+    async def earn_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await earncredit(interaction)
+
+
+# --- REPLACE your old /help command with this one ---
+@bot.tree.command(name="help", description="Shows the help panel with buttons")
+async def help_command(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Crash Cloud - Help",
+        description="Use the buttons below to run commands.\n"
+                    "Buttons with a form will ask for the container name first.",
+        color=0x00ff00
+    )
+    embed.add_field(
+        name="Deploy",
+        value="Create a new Ubuntu 22.04 instance.",
+        inline=False
+    )
+    embed.add_field(
+        name="Manage",
+        value="Start, Stop, Restart, Regen SSH, Remove, List.",
+        inline=False
+    )
+    embed.add_field(
+        name="Ports",
+        value="Add TCP port forward or HTTP forward.",
+        inline=False
+    )
+    embed.add_field(
+        name="Status & Credits",
+        value="Ping, Node, Balance, Earn Credit.",
+        inline=False
+    )
+    await interaction.response.send_message(embed=embed, view=HelpView())
 
 # run the bot
 bot.run(TOKEN)
