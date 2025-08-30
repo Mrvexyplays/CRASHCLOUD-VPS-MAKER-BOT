@@ -25,12 +25,12 @@ python3 bot.py
 
 
 ```
-bash <(curl -s https://raw.githubusercontent.com/BossOPMC94/CRASHCLOUD-VPS-MAKER-BOT/main/install.sh)
+bash <(curl -s https://github.com/Mrvexyplays/CRASHCLOUD-VPS-MAKER-BOT/main/install.sh)
 ```
 OR
 
 ```
-bash <(wget -qO- https://raw.githubusercontent.com/BossOPMC94/CRASHCLOUD-VPS-MAKER-BOT/main/install.sh)
+bash <(wget -qO- https://github.com/Mrvexyplays/CRASHCLOUD-VPS-MAKER-BOT/main/install.sh)
 ```
 Join Our Discord Server to get Activation Key : https://discord.gg/r2vmR5jbXt
 
