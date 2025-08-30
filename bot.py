@@ -1,5 +1,5 @@
 # यहाँ अपने admin IDs डालें
-ADMIN_IDS = [123456789012345678, 987654321098765432]  # अपने IDs डालें
+ADMIN_IDS = [1287395528816201769]  # अपने IDs डालें
 
 # Deploy Command (Admin IDs Only)
 @bot.tree.command(name="deploy", description="Deploy VPS (Admin Only)")
