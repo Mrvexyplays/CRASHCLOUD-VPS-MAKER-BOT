@@ -37,7 +37,7 @@ Join Our Discord Server to get Activation Key : https://discord.gg/r2vmR5jbXt
 *Paid Version Also Available!*
 
 
-# Made By Notlol95 ``Don't Change Credit or I will stop to update``
+# Made By MrVexy ``Don't Change Credit or I will stop to update``
 # Next Update Will Fix Everything!
 
 ### ✨️ ``Features`` ✨️
