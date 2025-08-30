@@ -4,252 +4,70 @@ import sys
 import os
 import re
 import time
-import concurrent.futures
 import random
 import discord
-from discord.ext import commands, tasks
-import docker
-import asyncio
+from discord.ext import commands
 from discord import app_commands
-import requests
 
-# Set Your Bot Token dude 
-TOKEN = 'YOUR_BOT_TOKEN'
-RAM_LIMIT = '2g' #Set Your Own Ram How Much You Want To Give Your Users
-SERVER_LIMIT = 2 #you can change it!
-database_file = 'database.txt'
+# Bot Token डालें
+TOKEN = ""
 
+# RAM Limit Example
+RAM_LIMIT = "2g"
+
+# Intents
 intents = discord.Intents.default()
-intents.messages = False
-intents.message_content = False
+intents.message_content = True
+intents.guilds = True
 
-bot = commands.Bot(command_prefix='/', intents=intents)
-client = docker.from_env()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-whitelist_ids = {"1128161197766746213"}  # Replace with actual user IDs
+# सिर्फ Admin Allow करने का check
+def is_admin():
+    async def predicate(ctx):
+        return ctx.author.guild_permissions.administrator
+    return commands.check(predicate)
 
-# Utility Functions
-def add_to_database(userid, container_name, ssh_command):
-    with open(database_file, 'a') as f:
-        f.write(f"{userid}|{container_name}|{ssh_command}\n")
-
-def remove_from_database(ssh_command):
-    if not os.path.exists(database_file):
-        return
-    with open(database_file, 'r') as f:
-        lines = f.readlines()
-    with open(database_file, 'w') as f:
-        for line in lines:
-            if ssh_command not in line:
-                f.write(line)
-
-def get_user_servers(user):
-    if not os.path.exists(database_file):
-        return []
-    servers = []
-    with open(database_file, 'r') as f:
-        for line in f:
-            if line.startswith(user):
-                servers.append(line.strip())
-    return servers
-
-def count_user_servers(userid):
-    return len(get_user_servers(userid))
-
-def get_container_id_from_database(userid, container_name):
-    if not os.path.exists(database_file):
-        return None
-    with open(database_file, 'r') as f:
-        for line in f:
-            if line.startswith(userid) and container_name in line:
-                return line.split('|')[1]
-    return None
-
-def generate_random_port():
-    return random.randint(1025, 65535)
-
-async def capture_ssh_session_line(process):
-    while True:
-        output = await process.stdout.readline()
-        if not output:
-            break
-        output = output.decode('utf-8').strip()
-        if "ssh session:" in output:
-            return output.split("ssh session:")[1].strip()
-    return None
-
-
-
-# In-memory database for user credits
-user_credits = {}
-
-# Cuty.io API key (Your account key)
-API_KEY = 'ebe681f9e37ef61fcfd756396'
-
-# Slash command: earnCredit
-@bot.tree.command(name="earncredit", description="Generate a URL to shorten and earn credits.")
-async def earncredit(interaction: discord.Interaction):
-    print("Received request to shorten URL")
-    user_id = interaction.user.id
-
-    # Define a default URL to shorten
-    default_url = "https://cuty.io/e58WUzLMmE3S"  # Change this as needed
-
-    # Make a request to Cuty.io API to shorten the default URL
-    api_url = f"https://cutt.ly/api/api.php?key={API_KEY}&short={default_url}"
-    print(f"Making API call to: {api_url}")
-    response = requests.get(api_url).json()
-    print(f"API response: {response}")
-
-    # Check if the URL was successfully shortened
-    if response['url']['status'] == 7:
-        shortened_url = response['url']['shortLink']
-        credits_earned = 1  # Update to 1 credit for each shortening
-
-        # Add credits to user
-        user_credits[user_id] = user_credits.get(user_id, 0) + credits_earned
-
-        await interaction.response.send_message(f"Success! Here's your shortened URL: {shortened_url}. You earned {credits_earned} credit!")
-    else:
-        # Handle API error messages
-        error_message = response['url'].get('title', 'Failed to generate a shortened URL. Please try again.')
-        await interaction.response.send_message(error_message)
-
-# Slash command: bal
-@bot.tree.command(name="bal", description="Check your credit balance.")
-async def bal(interaction: discord.Interaction):
-    user_id = interaction.user.id
-    credits = user_credits.get(user_id, 0)
-    await interaction.response.send_message(f"You have {credits} credits.")
-#portnew
-@bot.tree.command(name="port-forward-new", description="Set up port forwarding for a container using localhost.run.")
-@app_commands.describe(container_name="The name of the container", container_port="The port inside the container to forward")
-async def port_forward_win(interaction: discord.Interaction, container_name: str, container_port: int):
-    await interaction.response.defer()  # Allow time for execution
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
     try:
-        # Use localhost.run for port forwarding
-        command = f"docker exec -it {container_name} ssh -R 80:localhost:{container_port} ssh.localhost.run"
-        process = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await process.communicate()
-
-        if stdout:
-            output = stdout.decode().strip()
-            await interaction.followup.send(embed=discord.Embed(
-                description=f"### Port Forwarding Successful:\n{output}",
-                color=0x00ff00
-            ))
-        if stderr:
-            error = stderr.decode().strip()
-            await interaction.followup.send(embed=discord.Embed(
-                description=f"### Error in Port Forwarding:\n{error}",
-                color=0xff0000
-            ))
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} command(s)")
     except Exception as e:
-        await interaction.followup.send(embed=discord.Embed(
-            description=f"### Failed to set up port forwarding: {str(e)}",
-            color=0xff0000
-        ))
+        print(f"❌ Sync error: {e}")
 
-# Node Status Command
-def get_node_status():
+# Normal Ping Command
+@bot.tree.command(name="ping", description="Check if bot is alive")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("🏓 Pong! Bot is alive!")
+
+# Deploy Command (Admin Only)
+@bot.tree.command(name="deploy", description="Deploy VPS (Admin Only)")
+@is_admin()
+async def deploy(interaction: discord.Interaction):
+    await interaction.response.defer()
     try:
-        containers = client.containers.list(all=True)
-        container_status = "\n".join([f"{container.name} - {container.status}" for container in containers]) or "No containers running."
-
-        # Get system-wide memory usage using `os` module
-        with open('/proc/meminfo', 'r') as f:
-            meminfo = f.read()
-        mem_total = int(re.search(r'MemTotal:\s+(\d+)', meminfo).group(1)) / 1024  # Convert to MB
-        mem_free = int(re.search(r'MemFree:\s+(\d+)', meminfo).group(1)) / 1024  # Convert to MB
-        mem_available = int(re.search(r'MemAvailable:\s+(\d+)', meminfo).group(1)) / 1024  # Convert to MB
-
-        memory_used = mem_total - mem_available
-        memory_percentage = (memory_used / mem_total) * 100 if mem_total else 0
-
-        node_info = {
-            "containers": container_status,
-            "memory_total": mem_total,
-            "memory_used": memory_used,
-            "memory_percentage": memory_percentage
-        }
-        return node_info
+        # Example: Docker command (आप अपनी VPS deploy command डाल सकते हैं)
+        cmd = [
+            "docker", "run", "--rm",
+            f"--memory={RAM_LIMIT}",
+            "ubuntu:22.04", "echo", "VPS Deployed ✅"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            await interaction.followup.send(
+                f"✅ VPS Deployed Successfully!\n```{result.stdout}```"
+            )
+        else:
+            await interaction.followup.send(
+                f"❌ Error deploying VPS\n```{result.stderr}```"
+            )
     except Exception as e:
-        return str(e)
+        await interaction.followup.send(f"⚠️ Exception: {e}")
 
-@bot.tree.command(name="node", description="Show the current status of the VPS node.")
-async def node_status(interaction: discord.Interaction):
-    try:
-        node_info = get_node_status()
-
-        if isinstance(node_info, str):  # If there's an error
-            await interaction.response.send_message(embed=discord.Embed(description=f"### Error fetching node status: {node_info}", color=0xff0000))
-            return
-
-        # Format the status message
-        embed = discord.Embed(title="VPS Node1 Status", color=0x00ff00)
-        embed.add_field(name="Containers", value=node_info["containers"], inline=False)
-        embed.add_field(name="Memory Usage", value=f"{node_info['memory_used']:.2f} / {node_info['memory_total']:.2f} MB ({node_info['memory_percentage']:.2f}%)", inline=False)
-
-        await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        await interaction.response.send_message(embed=discord.Embed(description=f"### Failed to fetch node status: {str(e)}", color=0xff0000))
-
-
-@bot.tree.command(name="renew", description="Renew a VPS for 8 days using 2 credits.")
-@app_commands.describe(vps_id="ID of the VPS to renew")
-async def renew(interaction: discord.Interaction, vps_id: str):
-    user_id = str(interaction.user.id)
-    credits = user_credits.get(user_id, 0)
-
-    # Check if user has enough credits
-    if credits < 2:
-        await interaction.response.send_message(embed=discord.Embed(
-            description="You don't have enough credits to renew the VPS. You need 2 credits.",
-            color=0xff0000))
-        return
-
-    # Get VPS from the database (check if VPS exists for the user)
-    container_id = get_container_id_from_database(user_id, vps_id)
-    if not container_id:
-        await interaction.response.send_message(embed=discord.Embed(
-            description=f"VPS with ID {vps_id} not found.",
-            color=0xff0000))
-        return
-
-    # Deduct credits
-    user_credits[user_id] -= 2
-
-    # Renew VPS: Add 8 days to the current expiry
-    renewal_date = datetime.now() + timedelta(days=8)
-    vps_renewals[vps_id] = renewal_date
-
-    # You may also want to log this in a persistent database, not just in memory
-
-    await interaction.response.send_message(embed=discord.Embed(
-        description=f"VPS {vps_id} has been renewed for 8 days. New expiry date: {renewal_date.strftime('%Y-%m-%d')}. "
-                    f"You now have {user_credits[user_id]} credits remaining.",
-        color=0x00ff00))
-
-
-# Remove Everything Task
-async def remove_everything_task(interaction: discord.Interaction):
-    await interaction.channel.send("### Node is full. Resetting all user instances...")
-    try:
-        subprocess.run("docker rm -f $(sudo docker ps -a -q)", shell=True, check=True)
-        os.remove(database_file)
-        subprocess.run("pkill pytho*", shell=True, check=True)
-        await interaction.channel.send("### All instances and data have been reset.")
-    except Exception as e:
-        await interaction.channel.send(f"### Failed to reset instances: {str(e)}")
-
-# KillVPS Command (Admin only)
-@bot.tree.command(name="killvps", description="Kill all user VPS instances. Admin only.")
-async def kill_vps(interaction: discord.Interaction):
-    userid = str(interaction.user.id)
-    if userid not in whitelist_ids:
-        await interaction.response.send_message(embed=discord.Embed(description="You do not have permission to use this command.", color=0xff0000))
-        return
+# Run Bot
+bot.run(TOKEN)  return
 
     await remove_everything_task(interaction)
     await interaction.response.send_message(embed=discord.Embed(description="### All user VPS instances have been terminated.", color=0x00ff00))
